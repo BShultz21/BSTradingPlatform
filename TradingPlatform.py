@@ -341,6 +341,8 @@ class Streamer(object):
 
                 if self.data_queue:
                     await self.data_queue.put(parsed_message)
+        else:
+            print(message)
 
     def set_data_queue(self, queue):
         self.data_queue = queue
@@ -361,6 +363,7 @@ class Streamer(object):
                  ]}
 
         request_data = json.dumps(request_data)
+        print(request_data)
 
         await self.websocket.send(request_data)
 
