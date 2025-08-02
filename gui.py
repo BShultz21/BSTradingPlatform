@@ -10,6 +10,7 @@ from DataStreamer import Streamer
 import asyncio
 from dotenv import dotenv_values
 from pynput.keyboard import Listener
+from PriceHistory import PriceHistory
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
@@ -23,7 +24,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QHBoxLayout(central_widget)
 
         self.axis = pg.DateAxisItem(orientation="bottom")
-        self.plot_widget = pg.PlotWidget(axisItems={"bottom": self.axis})
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setAxisItems({'bottom': self.axis})
         self.plot_widget.setLabel("left", "Price")
         self.plot_widget.setLabel("bottom", "Time")
         self.plot_widget.showGrid(x=True, y=True)
@@ -41,11 +43,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.curve = self.plot_widget.plot(self.price_list, self.time_list, pen='r', width=5)
 
-    async def update_plot(self, data: dict) -> None:
+    async def update_plot(self, data: dict, streaming:bool) -> None:
         """
-        This takes in data and then produces a stock chart in the gui
+        This takes in data and streaming which determines if during market hours and then produces a stock chart in the gui
+        Streaming = True means during market hours which streams data. Streaming = False means historical data
         """
-        if 'Last Price' in data[1]:
+        if streaming == True and 'Last Price' in data[1]:
             try:
                 timestamp = time.time()
                 self.time_list.append(timestamp)
@@ -57,12 +60,24 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 if len(self.price_list) == len(self.time_list):
                     self.curve.setData(time_array, price_array)
-
             except KeyError:
                 pass
-
             except TypeError:
                 pass
+
+        if not streaming:
+            for element in data:
+                timestamp = element['datetime']
+                timestamp = timestamp / 1000
+                self.time_list.append(timestamp)
+
+                price = float(element['close'])
+                self.price_list.append(price)
+
+            price_array = np.array(list(self.price_list), dtype=np.float64)
+            time_array = np.array(list(self.time_list), dtype=np.float64)
+            self.curve.setData(time_array, price_array)
+
 
     async def wait_for_signal(self, signal):
         """
@@ -80,13 +95,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     async def requested_ticker(self) -> str:
         await self.wait_for_signal(self.text_widget.returnPressed)
+        self.plot_widget.setTitle(f'{self.text_widget.text().upper()} Stock')
         return self.text_widget.text().upper()
 
+def authenticate_user() -> str:
+    """
+    This authenticates the user through the Schwab API Oauth process and then returns the access token
+    """
 
-async def stream_data() -> None:
-    """
-    This allows streaming of data from Schwab API
-    """
     config = dotenv_values('.env')
     Schwab = APICredentials(config['app_key'], config['secret_key'], config['callback_url'],
                             'https://api.schwabapi.com/v1/oauth/authorize',
@@ -95,12 +111,18 @@ async def stream_data() -> None:
     Schwab.get_valid_token()
     Schwab.write_token_data()
 
+    return Schwab.accessToken[0]
+
+async def stream_data(access_token:str, ticker:str) -> None:
+    """
+    This allows streaming of data from Schwab API
+    """
     keyboard_handler = KeyboardHandler()
 
     listener = Listener(on_release=keyboard_handler.on_key_release)
     listener.start()
 
-    Stream = Streamer(Schwab.accessToken[0])
+    Stream = Streamer(access_token)
     Stream.get_streamer_info()
 
     Stream.set_data_queue(asyncio.Queue())
@@ -113,14 +135,13 @@ async def stream_data() -> None:
         """
         while True:
             data = await Stream.data_queue.get()
-            await main.update_plot(data)
+            await main.update_plot(data, True)
 
     def request_counter(counter: int) -> int:
         counter = counter + 1
         return counter
 
     try:
-        ticker = await main.requested_ticker()
 
         async with asyncio.TaskGroup() as tg:
             task1 = tg.create_task(Stream.start_message_listener())
@@ -134,6 +155,22 @@ async def stream_data() -> None:
     finally:
         listener.stop()
 
+async def main_func():
+    access_token = authenticate_user()
+    historical = PriceHistory(access_token)
+
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+
+    ticker = await main.requested_ticker()
+
+    if not historical.get_market_hours('equity')['equity']['equity']['isOpen']:
+        data = historical.get_stock_price_history(ticker)
+        data = data['candles']
+        await main.update_plot(data, False)
+        await future
+    else:
+        await stream_data(access_token, ticker)
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
@@ -144,5 +181,5 @@ if __name__ == '__main__':
     main.show()
 
     with event_loop:
-        event_loop.run_until_complete(stream_data())
+        event_loop.run_until_complete(main_func())
 
