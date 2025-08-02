@@ -5,7 +5,8 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit
 from collections import deque
 import numpy as np
-from TradingPlatform import Streamer, APICredentials, TerminateTaskGroup, KeyboardHandler
+from Authentication import APICredentials, TerminateTaskGroup, KeyboardHandler
+from DataStreamer import Streamer
 import asyncio
 from dotenv import dotenv_values
 from pynput.keyboard import Listener
@@ -21,8 +22,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QHBoxLayout(central_widget)
 
-        self.ticker_future = None
-
         self.axis = pg.DateAxisItem(orientation="bottom")
         self.plot_widget = pg.PlotWidget(axisItems={"bottom": self.axis})
         self.plot_widget.setLabel("left", "Price")
@@ -33,7 +32,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.text_widget = QLineEdit()
         self.text_widget.setMaxLength(5)
         self.text_widget.setPlaceholderText("Enter Stock Ticker")
-        self.text_widget.returnPressed.connect(self.requested_ticker)
         self.setCentralWidget(central_widget)
         layout.addWidget(self.text_widget)
 
@@ -44,6 +42,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.curve = self.plot_widget.plot(self.price_list, self.time_list, pen='r', width=5)
 
     async def update_plot(self, data: dict) -> None:
+        """
+        This takes in data and then produces a stock chart in the gui
+        """
         if 'Last Price' in data[1]:
             try:
                 timestamp = time.time()
@@ -63,18 +64,29 @@ class MainWindow(QtWidgets.QMainWindow):
             except TypeError:
                 pass
 
-    def requested_ticker(self) -> asyncio.Future:
-        self.ticker_future = asyncio.Future()
-        ticker = self.text_widget.text().upper()
-        self.ticker_future.set_result(ticker)
-        print(self.ticker_future.result())
-        if self.ticker_future != '':
-            return self.ticker_future
-        else:
-            time.sleep(3)
+    async def wait_for_signal(self, signal):
+        """
+        Takes in signal, waits until signal has been emitted and the sets future to the desired result
+        """
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+
+        def handler(*args):
+            future.set_result(args)
+
+        signal.connect(handler)
+        result = await future
+        return result
+
+    async def requested_ticker(self) -> str:
+        await self.wait_for_signal(self.text_widget.returnPressed)
+        return self.text_widget.text().upper()
 
 
 async def stream_data() -> None:
+    """
+    This allows streaming of data from Schwab API
+    """
     config = dotenv_values('.env')
     Schwab = APICredentials(config['app_key'], config['secret_key'], config['callback_url'],
                             'https://api.schwabapi.com/v1/oauth/authorize',
@@ -95,29 +107,25 @@ async def stream_data() -> None:
 
     await Stream.start_stream_connection()
 
-    async def update_graph():
+    async def update_graph() -> None:
+        """
+        This grabs data that was set in the queue and then calls to update the plot in the gui
+        """
         while True:
             data = await Stream.data_queue.get()
             await main.update_plot(data)
 
-    def request_counter(counter):
+    def request_counter(counter: int) -> int:
         counter = counter + 1
         return counter
 
     try:
-        ticker = ''
-        ticker_list = []
-        while not ticker:
-            await asyncio.sleep(1)
-            ticker = await main.requested_ticker()
-            ticker_list.append(ticker)
+        ticker = await main.requested_ticker()
 
         async with asyncio.TaskGroup() as tg:
             task1 = tg.create_task(Stream.start_message_listener())
-            task2 = tg.create_task(Stream.request_level_one_equities(ticker_list, request_counter(0)))
+            task2 = tg.create_task(Stream.request_level_one_equities(ticker, request_counter(0)))
             task3 = tg.create_task(update_graph())
-
-            termination_task = tg.create_task(keyboard_handler.wait_for_termination())
 
     except* TerminateTaskGroup:
         print("Task Group Terminated")
