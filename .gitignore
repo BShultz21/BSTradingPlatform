@@ -1,0 +1,13 @@
+.env
+.venv/
+config/certificates/cert.pem
+tests/test_gui.py
+config/keys/key.pem
+Notes.txt
+config/certificates/server_cert.crt
+tests/test_server.py
+tests/test_trading_platform.py
+config/tokens/token.json
+.idea/
+
+
