@@ -173,6 +173,7 @@ async def main_func():
     else:
         await stream_data(access_token, ticker)
 
+
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
     event_loop = qasync.QEventLoop(app)

@@ -4,6 +4,7 @@ from auth import APICredentials
 from requests import HTTPError
 
 
+
 class PriceHistory(object):
     def __init__(self, access_token: str) -> None:
         self.access_token = access_token

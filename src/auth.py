@@ -131,6 +131,7 @@ class APICredentials(object):
                 self.authCode = server.codes[-1]
                 return self.authCode
             time.sleep(3)
+            
     def encode_credentials(self) -> str:
         """
         Encodes the client key and secret key provided by api in base64 ascii

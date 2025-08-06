@@ -12,6 +12,7 @@ def page() ->str:
     codes.append(code)
     return ''
 
+
 def run_server()-> None:
     """ Runs HTTPS server with self-signed certificate"""
     app.run(ssl_context = ('cert.pem','key.pem'), port=8182, debug= False)
