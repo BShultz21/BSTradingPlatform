@@ -1,4 +1,6 @@
 import time
+from asyncio import Event, get_running_loop
+
 import qasync
 from PyQt6 import QtWidgets
 import qdarktheme
@@ -12,6 +14,7 @@ from data_streamer import Streamer
 import asyncio
 from dotenv import dotenv_values
 from price_history import PriceHistory
+import json
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
@@ -36,7 +39,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_widget.showGrid(x=True, y=True)
         self.layout.addWidget(self.plot_widget)
 
-        self.max_data_points = 1000
+        self.max_data_points = 10000
         self.price_list = deque(maxlen=self.max_data_points)
         self.time_list = deque(maxlen=self.max_data_points)
 
@@ -63,6 +66,7 @@ class MainWindow(QtWidgets.QMainWindow):
         size_policy.setHeightForWidth(self.start_date.sizePolicy().hasHeightForWidth())
         self.start_date.setSizePolicy(size_policy)
         self.start_date.setMaxLength(13)
+        self.start_date.hide()
 
         self.gridLayout.addWidget(self.start_date, 5, 1, 1, 1)
 
@@ -83,6 +87,7 @@ class MainWindow(QtWidgets.QMainWindow):
         size_policy.setHeightForWidth(self.start_date_label.sizePolicy().hasHeightForWidth())
         self.start_date_label.setSizePolicy(size_policy)
         self.start_date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.start_date_label.hide()
 
         self.gridLayout.addWidget(self.start_date_label, 5, 0, 1, 1)
 
@@ -122,6 +127,7 @@ class MainWindow(QtWidgets.QMainWindow):
         size_policy.setHeightForWidth(self.end_date_label.sizePolicy().hasHeightForWidth())
         self.end_date_label.setSizePolicy(size_policy)
         self.end_date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.end_date_label.hide()
 
         self.gridLayout.addWidget(self.end_date_label, 6, 0, 1, 1)
 
@@ -132,11 +138,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ticker.setMaxLength(5)
         self.ticker.setAlignment(Qt.AlignmentFlag.AlignLeading|Qt.AlignmentFlag.AlignCenter|Qt.AlignmentFlag.AlignVCenter)
 
+        self.ticker_future = None
+
         self.gridLayout.addWidget(self.ticker, 0, 0, 1, 2)
 
         self.end_date = QLineEdit()
         self.end_date.setPlaceholderText("Epoch Time (ms)")
         self.end_date.setMaxLength(13)
+        self.end_date.hide()
 
         self.gridLayout.addWidget(self.end_date, 6, 1, 1, 1)
 
@@ -191,26 +200,28 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         Takes in signal, waits until signal has been emitted and the sets future to the desired result
         """
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
+        event = Event()
+        loop = get_running_loop()
 
-        def handler(*args):
-            future.set_result(args)
+        def handler():
+            loop.call_soon_threadsafe(event.set)
 
         signal.connect(handler)
-        result = await future
-        return result
+        await event.wait()
 
     async def requested_stock_data(self) -> dict:
         """
         Waits until the submit button is pressed to acquire data from widgets
         """
         await self.wait_for_signal(self.submit_button.clicked)
-        data = {'symbol': self.ticker.text().upper(),'periodType' : self.chart_period_type.currentText().lower(),
-                'period': self.chart_period.text(), 'frequencyType': self.frequency_type.currentText().lower(),
-                'frequency': self.frequency.text(), 'startDate': self.start_date.text(), 'endDate': self.end_date.text()}
-
-        return data
+        if self.validate_stock_data(self.ticker.text().upper()):
+            data = {'symbol': self.ticker.text().upper(),'periodType' : self.chart_period_type.currentText().lower(),
+                    'period': self.chart_period.text(), 'frequencyType': self.frequency_type.currentText().lower(),
+                    'frequency': self.frequency.text()}
+            return data
+        else:
+            data = {}
+            return data
 
     def change_frequency_type_options(self) -> None:
         """
@@ -229,11 +240,38 @@ class MainWindow(QtWidgets.QMainWindow):
             self.frequency_type.clear()
             self.frequency_type.addItems(['Daily', 'Weekly'])
 
-    def set_plot_widget_title(self):
-        pass
+    def disable_historical_equity_widgets(self) -> None:
+        """
+        Disables widgets if not being used to avoid confusion
+        """
+        self.frequency_type.setDisabled(True)
+        self.frequency.setDisabled(True)
+        self.chart_period_type.setDisabled(True)
+        self.chart_period.setDisabled(True)
+        self.start_date.setDisabled(True)
+        self.end_date.setDisabled(True)
 
-    def validate_stock_data(self, data:dict) -> bool:
-        pass
+    def set_plot_widget_title(self) -> None:
+        """
+        Sets the plot_widget title
+        """
+        self.plot_widget.setTitle(self.ticker.text().upper())
+
+    def validate_stock_data(self, symbol:str) -> bool:
+        if symbol in ticker_list():
+            return True
+        return False
+
+def ticker_list():
+    with open('../data/tickers.json') as f:
+        data = json.load(f)
+
+    valid_tickers = []
+    for k,v in data.items():
+        ticker = v['ticker']
+        valid_tickers.append(ticker)
+
+    return valid_tickers
 
 def authenticate_user() -> str:
     """
@@ -266,6 +304,7 @@ async def stream_data(access_token:str, ticker:str) -> None:
         """
         This grabs data that was set in the queue and then calls to update the plot in the gui
         """
+        main.set_plot_widget_title()
         while True:
             data = await Stream.data_queue.get()
             await main.update_plot(data, True)
@@ -282,24 +321,28 @@ async def stream_data(access_token:str, ticker:str) -> None:
     await task2
     await task3
 
-
 async def main_func():
     access_token = authenticate_user()
     historical = PriceHistory(access_token)
 
     loop = asyncio.get_running_loop()
     future = loop.create_future()
-
-
-    data = await main.requested_stock_data()
-
-    print(historical.get_market_hours('equity'))
-    if not historical.get_market_hours('equity')['equity']['EQ']['isOpen']:
+    flag = True
+    #historical.get_market_hours('equity')['equity']['EQ']['isOpen']
+    if flag:
+        while True:
+            data = await main.requested_stock_data()
+            if data:
+                break
         data = historical.get_stock_price_history(data)
         data = data['candles']
+        main.set_plot_widget_title()
         await main.update_plot(data, False)
+        #future below is just to keep program open. This future is never set or marked as done
         await future
     else:
+        main.disable_historical_equity_widgets()
+        data = await main.requested_stock_data()
         await stream_data(access_token, data['symbol'])
 
 

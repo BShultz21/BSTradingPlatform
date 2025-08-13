@@ -15,4 +15,5 @@ def page() ->str:
 
 def run_server()-> None:
     """ Runs HTTPS server with self-signed certificate"""
-    app.run(ssl_context = ('cert.pem','key.pem'), port=8182, debug= False)
+    app.run(ssl_context = ('../config/certificates/cert.pem','../config/keys/key.pem'), port=8182, debug= False)
+

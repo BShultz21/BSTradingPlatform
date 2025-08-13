@@ -13,14 +13,14 @@ class PriceHistory(object):
             "Authorization": f"Bearer {self.access_token}"
         }
 
-    def get_stock_price_history(self, symbol:str) -> dict:
+    def get_stock_price_history(self, request_data:dict) -> dict:
         """
         This return the stock price history for the last year on daily frequency. This also shows extended
         hours data and shows the previous close
         """
-
-        url = f"{self.url}pricehistory?symbol={symbol}&periodType=year&period=1&frequencyType=daily&frequency=1&needExtendedHoursData=true&needPreviousClose=true"
-
+        print(request_data)
+        url = (f"{self.url}pricehistory?symbol={request_data['symbol']}&periodType={request_data['periodType']}"
+               f"&period={request_data['period']}&frequencyType={request_data['frequencyType']}&frequency={request_data['frequency']}")
         response = requests.get(url, headers = self.auth_header)
 
         if response.status_code == 200:

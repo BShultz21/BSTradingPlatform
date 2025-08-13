@@ -185,6 +185,29 @@ class Streamer(object):
     async def request_level_one_futures_forex(self, request_id: int) -> None:
         pass
 
+    async def request_equity_chart(self, symbol:str, request_id:int) -> None:
+        """
+        Takes as symbol and request_id and request prints the equity data for that minute in time to be used for
+        charting candles
+        """
+        request_data = {
+                 "requests": [{
+                   "service": "CHART_EQUITY",
+                   "requestid": request_id,
+                   "command": "SUBS",
+                   "SchwabClientCustomerId": self.streamer_info['schwabClientCustomerId'],
+                   "SchwabClientCorrelId": self.streamer_info['schwabClientCorrelId'],
+                   "parameters": {
+                    "keys": symbol,
+                    "fields": "0,1,2,3,4,5,6,7,8"
+                   }}
+                 ]}
+
+        request_data = json.dumps(request_data)
+        print(request_data)
+
+        await self.websocket.send(request_data)
+
 def parse_equities_data(ticker_data:dict) -> list:
     """
     This takes in ticker data and maps the keys returned from stream to their respective name
@@ -272,4 +295,21 @@ def parse_futures_options_data(ticker_data:dict) -> list:
     pass
 
 def parse_forex_data(ticker_data:dict) -> list:
+    pass
+
+def parse_equity_chart_data(ticker_data:dict) -> list:
+    """
+    Takes in ticker_data and maps its key(number) to its respective name
+    """
+    key_mapping = {
+        "0": "key",
+        "1": "Open Price",
+        "2": "High Price",
+        "3": "Low Price",
+        "4": "Close Price",
+        "5": "Volume",
+        "6": "Sequence",
+        "7": "Chart Time",
+        "8": "Chart Day"
+    }
     pass
